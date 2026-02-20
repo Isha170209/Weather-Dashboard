@@ -4,3 +4,4 @@ geopandas
 numpy
 pyarrow
 requests
+plotly
