@@ -2,18 +2,21 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
+import os
+import glob
 import plotly.express as px
 
 st.set_page_config(layout="wide")
+st.title("IMD Climate Dashboard")
 
-st.title("IMD Rainfall Dashboard")
-
-# ==============================
-# LOAD DATA
-# ==============================
-
-import os
-import glob
+# ======================================================
+# LOAD DATA FROM MULTIPLE SUBFOLDERS
+# Structure:
+# data/
+#    rainfall/
+#    tmax/
+#    tmin/
+# ======================================================
 
 @st.cache_data
 def load_data():
@@ -26,7 +29,6 @@ def load_data():
 
     df_list = []
 
-    # Loop through parameter folders
     for parameter_folder in ["rainfall", "tmax", "tmin"]:
 
         folder_path = os.path.join(base_path, parameter_folder)
@@ -57,9 +59,12 @@ def load_data():
 
     return df
 
-# ==============================
-# STATE FILE IDS (GOOGLE DRIVE)
-# ==============================
+
+df = load_data()
+
+# ======================================================
+# GOOGLE DRIVE STATE GEOJSON FILE IDS
+# ======================================================
 
 STATE_FILE_IDS = {
     "andaman_nicobar": "1WoKzWAr6GM89JIYTSw5gYLHjdQPo7DZT",
@@ -71,8 +76,6 @@ STATE_FILE_IDS = {
     "chhattisgarh": "17BIaNHKkQLjOEKQmtFQipd837PUd6mR8",
     "dadra_nagar_haveli_daman_diu": "1Aj7PpBPGBuYCpLXAeb4rJ2EBAwmD_zPy",
     "delhi": "1rSuc5iEJhAropYakUo2TlZC9sLJsVsBK",
-    "disputed_westbengal": "1xeAlKgKx74K6FWVxrmBtQsawUniBfQQS",
-    "disputed": "1HP1EMtsBMlzWLboptCqSsLlFt2SGEhv5",
     "goa": "1tz_mykI0e2lNSmAAMgHg_r8gHoDWTYVi",
     "gujarat": "1os-EzdYxHirZav7QNoB6jOvZR-O70SVu",
     "haryana": "1giX-ntvwMB9wa5usNR9dIAwZ3HGAJHdG",
@@ -83,7 +86,6 @@ STATE_FILE_IDS = {
     "kerala": "1KU42UbqVFRbhd03UIuB_mXn64ZmcJhEL",
     "ladakh": "11JivUTcvJrX1m15pj7e3hyKBbGI4_r0g",
     "lakshadweep": "14ggNRvV840_NhiXAzxNVsssfkpaMjxLr",
-    "madhya_pradesh_disputed": "13wiAQTJFlmaceSByYr9p0EHYpCEklwE8",
     "madhya_pradesh": "13PUt6JsHRmOpzutfl2rP6xKYtu10Cqir",
     "maharashtra": "1o1d9nZdHjyIivRpbklGEdQ_dngKLo4es",
     "manipur": "1pYBPwB2PW-IST73Wq-Ca14ulR6GwV9Yg",
@@ -103,12 +105,13 @@ STATE_FILE_IDS = {
     "west_bengal": "1F0YnvVXRiU3OJ2hTNKEkBlh179AwiFkm"
 }
 
-# ==============================
-# LOAD GEOJSON PER STATE
-# ==============================
+# ======================================================
+# LOAD STATE BOUNDARY
+# ======================================================
 
 @st.cache_data(show_spinner=False)
 def load_boundary(selected_state):
+
     file_id = STATE_FILE_IDS.get(selected_state)
 
     if not file_id:
@@ -137,9 +140,9 @@ def load_boundary(selected_state):
     return geojson
 
 
-# ==============================
+# ======================================================
 # SIDEBAR FILTERS
-# ==============================
+# ======================================================
 
 st.sidebar.header("Filters")
 
@@ -150,20 +153,20 @@ state = st.sidebar.selectbox(
 
 filtered_df = df[df["state"] == state]
 
-if filtered_df.empty:
-    st.warning("No data available for selected state.")
-    st.stop()
-
 parameter = st.sidebar.selectbox(
     "Select Parameter",
-    filtered_df["parameter"].unique()
+    sorted(filtered_df["parameter"].unique())
 )
 
 filtered_df = filtered_df[filtered_df["parameter"] == parameter]
 
-# ==============================
+if filtered_df.empty:
+    st.warning("No data available.")
+    st.stop()
+
+# ======================================================
 # LOAD MAP
-# ==============================
+# ======================================================
 
 geojson = load_boundary(state)
 
@@ -181,6 +184,6 @@ fig = px.choropleth(
 )
 
 fig.update_geos(fitbounds="locations", visible=False)
-fig.update_layout(height=700)
+fig.update_layout(height=750)
 
 st.plotly_chart(fig, use_container_width=True)
