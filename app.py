@@ -102,7 +102,7 @@ with left_panel:
 
     st.markdown("### Filters")
 
-    parameter = st.selectbox("Parameter", ["rain", "tmax", "tmin"])
+    parameter = st.selectbox("Parameter", ["rainfall", "tmax", "tmin"])
     folder_path = f"data/{parameter}"
 
     if not os.path.exists(folder_path):
