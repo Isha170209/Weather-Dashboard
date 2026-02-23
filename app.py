@@ -1,50 +1,94 @@
 import streamlit as st
 import pandas as pd
-import os
-import json
 import requests
+import json
 import plotly.express as px
 
 st.set_page_config(layout="wide")
 
-# ------------------------------------------------
-# HEADER (IMD STYLE)
-# ------------------------------------------------
+st.title("IMD Rainfall Dashboard")
 
-st.markdown("""
-    <div style="
-        background-color: #E31F26;
-        padding: 18px;
-    ">
-        <h1 style="
-            color: white;
-            text-align: center;
-            margin: 0;
-            font-weight: 600;
-        ">
-            IMD Weather Dashboard
-        </h1>
-    </div>
-""", unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ------------------------------------------------
-# CACHE: LOAD GEOJSON FROM GOOGLE DRIVE
-# ------------------------------------------------
+# ==============================
+# LOAD DATA
+# ==============================
 
 @st.cache_data
-def load_boundary():
+def load_data():
+    df = pd.read_parquet("imd_data.parquet")
+    
+    # Normalize
+    df["state"] = df["state"].str.strip().str.lower()
+    df["tehsil"] = df["tehsil"].str.strip().str.lower()
+    
+    return df
 
-    # 🔴 Replace with your actual file ID
-    FILE_ID = "1NTEbpnCmcsyFS4L0hYYvoyo6uPxeDVJN"
+df = load_data()
 
-    url = f"https://drive.google.com/uc?export=download&id=1NTEbpnCmcsyFS4L0hYYvoyo6uPxeDVJN"
+# ==============================
+# STATE FILE IDS (GOOGLE DRIVE)
+# ==============================
 
-    response = requests.get(url)
-    geojson = response.json()
+STATE_FILE_IDS = {
+    "andaman_nicobar": "1WoKzWAr6GM89JIYTSw5gYLHjdQPo7DZT",
+    "andhra_pradesh": "1AqVtI7-tOVBv5GjpDKPrcWIvoMkQ2vJn",
+    "arunchal_pradesh": "1xLLuvJKkSR_1jVTW9SdfLpEs6EXJCb8F",
+    "assam": "1QNY5ixe1CS30zBJszM4ItjF8IN7zb6nS",
+    "bihar": "1jbz3aErYkOaPdABerus6e-UAaZ_YrCoy",
+    "chandigarh": "1a3LaLD39vs61NA6PtqRtoQ0Yln3plm2r",
+    "chhattisgarh": "17BIaNHKkQLjOEKQmtFQipd837PUd6mR8",
+    "dadra_nagar_haveli_daman_diu": "1Aj7PpBPGBuYCpLXAeb4rJ2EBAwmD_zPy",
+    "delhi": "1rSuc5iEJhAropYakUo2TlZC9sLJsVsBK",
+    "disputed_westbengal": "1xeAlKgKx74K6FWVxrmBtQsawUniBfQQS",
+    "disputed": "1HP1EMtsBMlzWLboptCqSsLlFt2SGEhv5",
+    "goa": "1tz_mykI0e2lNSmAAMgHg_r8gHoDWTYVi",
+    "gujarat": "1os-EzdYxHirZav7QNoB6jOvZR-O70SVu",
+    "haryana": "1giX-ntvwMB9wa5usNR9dIAwZ3HGAJHdG",
+    "himachal_pradesh": "1D8Fmi8a3sdz16vEDzm44b9prrI3oC8UB",
+    "jammu_kashmir": "1NFfmao42z4xu4bbBodPq3EW3Tz8SJH2Y",
+    "jharkhand": "1QFSNYUjDO9QJBEjkjy69OG8vp6BnUCPU",
+    "karnataka": "1C4kIGVzfhG8F6ru2zccSJ0xuqEiJAR34",
+    "kerala": "1KU42UbqVFRbhd03UIuB_mXn64ZmcJhEL",
+    "ladakh": "11JivUTcvJrX1m15pj7e3hyKBbGI4_r0g",
+    "lakshadweep": "14ggNRvV840_NhiXAzxNVsssfkpaMjxLr",
+    "madhya_pradesh_disputed": "13wiAQTJFlmaceSByYr9p0EHYpCEklwE8",
+    "madhya_pradesh": "13PUt6JsHRmOpzutfl2rP6xKYtu10Cqir",
+    "maharashtra": "1o1d9nZdHjyIivRpbklGEdQ_dngKLo4es",
+    "manipur": "1pYBPwB2PW-IST73Wq-Ca14ulR6GwV9Yg",
+    "meghalaya": "16BjIoAPmNhML2PG-XjQnwaILofQkfMmJ",
+    "mizoram": "1jz_a_RXj89Yszd5i05Xy59TNNylWFnyU",
+    "nagalanad": "1GOS5q_6ic2RlF2y-xJBEUqyivjWZrbhR",
+    "odisha": "1rVtcpWT1-O-vYmjEzAArKMMXDA1wIYMI",
+    "puducherry": "15YLDuy66g3wx8EDVqb6cetbc_aYMhBAR",
+    "punjab": "1bO2KAIHXlR2Jlit0a6iDnIZ-gk0xUAJm",
+    "rajasthan": "12oTbj7eCIFOv2PkNJw8CP1PeuQs_WIF3",
+    "sikkim": "1M-tUqNdUiciWwQWb99N7h3EfcbgkU72f",
+    "tamil_nadu": "1y5wnAKByePYT2gpW9bKY5fafpJPtWzxk",
+    "telangana": "16cEgosKyvTD481j1KAdzl0zAqrhwDheG",
+    "tripura": "1MVlk3CtKXjsX1wqQtjvcqN8SdOnXK1ZR",
+    "uttar_pradesh": "1RkNQVQIkidG8Tjiz0SWdPxN6Do1bXMUK",
+    "uttarakhand": "1XyXiqPmLJ7bbpJM5PfHcW8eZ571TL8oS",
+    "west_bengal": "1F0YnvVXRiU3OJ2hTNKEkBlh179AwiFkm"
+}
 
-    # Normalize property names and values
+# ==============================
+# LOAD GEOJSON PER STATE
+# ==============================
+
+@st.cache_data(show_spinner=False)
+def load_boundary(selected_state):
+    file_id = STATE_FILE_IDS.get(selected_state)
+
+    if not file_id:
+        return None
+
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    response = requests.get(url, timeout=60)
+
+    if response.status_code != 200:
+        return None
+
+    geojson = json.loads(response.content)
+
     for feature in geojson["features"]:
         feature["properties"] = {
             k.lower(): v for k, v in feature["properties"].items()
@@ -60,172 +104,50 @@ def load_boundary():
     return geojson
 
 
-# ------------------------------------------------
-# CACHE: LOAD PARQUET FILES
-# ------------------------------------------------
+# ==============================
+# SIDEBAR FILTERS
+# ==============================
 
-@st.cache_data
-def load_all_parquet(folder_path):
-    files = [f for f in os.listdir(folder_path) if f.endswith(".parquet")]
+st.sidebar.header("Filters")
 
-    if not files:
-        return None
+state = st.sidebar.selectbox(
+    "Select State",
+    sorted(df["state"].unique())
+)
 
-    df_list = []
-    for f in files:
-        df = pd.read_parquet(os.path.join(folder_path, f))
-        df_list.append(df)
+filtered_df = df[df["state"] == state]
 
-    df = pd.concat(df_list, ignore_index=True)
+if filtered_df.empty:
+    st.warning("No data available for selected state.")
+    st.stop()
 
-    df.columns = df.columns.str.lower()
+parameter = st.sidebar.selectbox(
+    "Select Parameter",
+    filtered_df["parameter"].unique()
+)
 
-    # Normalize admin names
-    for col in ["state", "district", "tehsil"]:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.strip().str.lower()
+filtered_df = filtered_df[filtered_df["parameter"] == parameter]
 
-    return df
+# ==============================
+# LOAD MAP
+# ==============================
 
+geojson = load_boundary(state)
 
-# ------------------------------------------------
-# LAYOUT
-# ------------------------------------------------
+if geojson is None:
+    st.error("Boundary file not found for selected state.")
+    st.stop()
 
-left_panel, map_panel = st.columns([1, 3])
+fig = px.choropleth(
+    filtered_df,
+    geojson=geojson,
+    locations="tehsil",
+    featureidkey="properties.tehsil",
+    color="value",
+    projection="mercator"
+)
 
-# ------------------------------------------------
-# FILTER PANEL
-# ------------------------------------------------
+fig.update_geos(fitbounds="locations", visible=False)
+fig.update_layout(height=700)
 
-with left_panel:
-
-    st.markdown("### Filters")
-
-    parameter = st.selectbox("Parameter", ["rainfall", "tmax", "tmin"])
-    folder_path = f"data/{parameter}"
-
-    if not os.path.exists(folder_path):
-        st.error("Data folder not found.")
-        st.stop()
-
-    df = load_all_parquet(folder_path)
-
-    if df is None:
-        st.error("No parquet files found.")
-        st.stop()
-
-    required_cols = ["date", "state", "district", "tehsil"]
-    missing = [col for col in required_cols if col not in df.columns]
-
-    if missing:
-        st.error(f"Missing required columns: {missing}")
-        st.stop()
-
-    df["date"] = pd.to_datetime(df["date"])
-
-    # STATE
-    state = st.selectbox(
-        "State",
-        sorted(df["state"].dropna().unique())
-    )
-
-    df_state = df[df["state"] == state]
-
-    # DISTRICT
-    district = st.selectbox(
-        "District",
-        sorted(df_state["district"].dropna().unique())
-    )
-
-    df_district = df_state[df_state["district"] == district]
-
-    # TEHSIL
-    tehsil = st.selectbox(
-        "Tehsil",
-        sorted(df_district["tehsil"].dropna().unique())
-    )
-
-    df_tehsil = df_district[df_district["tehsil"] == tehsil]
-
-    # DATE RANGE
-    min_date = df["date"].min()
-    max_date = df["date"].max()
-
-    start_date = st.date_input(
-        "Start Date",
-        min_value=min_date,
-        max_value=max_date,
-        value=min_date
-    )
-
-    end_date = st.date_input(
-        "End Date",
-        min_value=min_date,
-        max_value=max_date,
-        value=max_date
-    )
-
-    col1, col2 = st.columns(2)
-    confirm = col1.button("Confirm")
-    reset = col2.button("Reset")
-
-    if reset:
-        st.experimental_rerun()
-
-
-# ------------------------------------------------
-# MAP PANEL
-# ------------------------------------------------
-
-with map_panel:
-
-    if confirm:
-
-        df_filtered = df_tehsil[
-            (df_tehsil["date"] >= pd.to_datetime(start_date)) &
-            (df_tehsil["date"] <= pd.to_datetime(end_date))
-        ]
-
-        if df_filtered.empty:
-            st.warning("No data available for selected filters.")
-            st.stop()
-
-        non_value_cols = ["date", "lat", "lon", "state", "district", "tehsil"]
-        value_columns = [col for col in df.columns if col not in non_value_cols]
-
-        if not value_columns:
-            st.error("No climate value column found.")
-            st.stop()
-
-        value_column = value_columns[0]
-
-        agg = (
-            df_filtered
-            .groupby("tehsil")[value_column]
-            .mean()
-            .reset_index()
-        )
-
-        geojson = load_boundary()
-
-        fig = px.choropleth_mapbox(
-            agg,
-            geojson=geojson,
-            locations="tehsil",
-            featureidkey="properties.tehsil",
-            color=value_column,
-            mapbox_style="carto-positron",
-            zoom=5,
-            center={"lat": 22.5, "lon": 80},
-            opacity=0.75
-        )
-
-        fig.update_layout(
-            margin={"r": 0, "t": 0, "l": 0, "b": 0}
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-    else:
-        st.info("Select filters and click Confirm to display the map.")
+st.plotly_chart(fig, use_container_width=True)
