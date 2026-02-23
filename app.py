@@ -12,17 +12,50 @@ st.title("IMD Rainfall Dashboard")
 # LOAD DATA
 # ==============================
 
+import os
+import glob
+
 @st.cache_data
 def load_data():
-    df = pd.read_parquet("imd_data.parquet")
-    
-    # Normalize
+
+    base_path = "data"
+
+    if not os.path.exists(base_path):
+        st.error("Data folder not found.")
+        st.stop()
+
+    df_list = []
+
+    # Loop through parameter folders
+    for parameter_folder in ["rainfall", "tmax", "tmin"]:
+
+        folder_path = os.path.join(base_path, parameter_folder)
+
+        if not os.path.exists(folder_path):
+            continue
+
+        parquet_files = glob.glob(os.path.join(folder_path, "*.parquet"))
+
+        for file in parquet_files:
+            df = pd.read_parquet(file)
+
+            # Add parameter column manually
+            df["parameter"] = parameter_folder
+
+            df_list.append(df)
+
+    if not df_list:
+        st.error("No parquet files found in data subfolders.")
+        st.stop()
+
+    df = pd.concat(df_list, ignore_index=True)
+
+    # Normalize text columns
     df["state"] = df["state"].str.strip().str.lower()
     df["tehsil"] = df["tehsil"].str.strip().str.lower()
-    
-    return df
+    df["parameter"] = df["parameter"].str.strip().str.lower()
 
-df = load_data()
+    return df
 
 # ==============================
 # STATE FILE IDS (GOOGLE DRIVE)
