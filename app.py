@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import json
-from topojson import Topology
+import requests
 import plotly.express as px
 
 st.set_page_config(layout="wide")
@@ -30,21 +30,32 @@ st.markdown("""
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ------------------------------------------------
-# CACHE: LOAD TOPOJSON AND CONVERT TO GEOJSON
+# CACHE: LOAD GEOJSON FROM GOOGLE DRIVE
 # ------------------------------------------------
 
 @st.cache_data
 def load_boundary():
-    with open("data/boundary/tehsil.topojson") as f:
-        topo = json.load(f)
 
-    geojson = Topology(topo).to_geojson()
+    # 🔴 Replace with your actual file ID
+    FILE_ID = "1NTEbpnCmcsyFS4L0hYYvoyo6uPxeDVJN"
 
-    # Normalize property names to lowercase
+    url = f"https://drive.google.com/uc?export=download&id=1NTEbpnCmcsyFS4L0hYYvoyo6uPxeDVJN"
+
+    response = requests.get(url)
+    geojson = response.json()
+
+    # Normalize property names and values
     for feature in geojson["features"]:
         feature["properties"] = {
             k.lower(): v for k, v in feature["properties"].items()
         }
+
+        if "tehsil" in feature["properties"]:
+            feature["properties"]["tehsil"] = (
+                str(feature["properties"]["tehsil"])
+                .strip()
+                .lower()
+            )
 
     return geojson
 
@@ -67,8 +78,12 @@ def load_all_parquet(folder_path):
 
     df = pd.concat(df_list, ignore_index=True)
 
-    # Normalize column names
     df.columns = df.columns.str.lower()
+
+    # Normalize admin names
+    for col in ["state", "district", "tehsil"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip().str.lower()
 
     return df
 
@@ -100,7 +115,6 @@ with left_panel:
         st.error("No parquet files found.")
         st.stop()
 
-    # Required columns
     required_cols = ["date", "state", "district", "tehsil"]
     missing = [col for col in required_cols if col not in df.columns]
 
@@ -177,7 +191,6 @@ with map_panel:
             st.warning("No data available for selected filters.")
             st.stop()
 
-        # Identify climate value column
         non_value_cols = ["date", "lat", "lon", "state", "district", "tehsil"]
         value_columns = [col for col in df.columns if col not in non_value_cols]
 
@@ -187,12 +200,15 @@ with map_panel:
 
         value_column = value_columns[0]
 
-        # Aggregate by tehsil
-        agg = df_filtered.groupby("tehsil")[value_column].mean().reset_index()
+        agg = (
+            df_filtered
+            .groupby("tehsil")[value_column]
+            .mean()
+            .reset_index()
+        )
 
         geojson = load_boundary()
 
-        # Choropleth with basemap
         fig = px.choropleth_mapbox(
             agg,
             geojson=geojson,
