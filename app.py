@@ -56,7 +56,7 @@ STATE_FILE_IDS = {
     "manipur": "1pYBPwB2PW-IST73Wq-Ca14ulR6GwV9Yg",
     "meghalaya": "16BjIoAPmNhML2PG-XjQnwaILofQkfMmJ",
     "mizoram": "1jz_a_RXj89Yszd5i05Xy59TNNylWFnyU",
-    "nagalanad": "1GOS5q_6ic2RlF2y-xJBEUqyivjWZrbhR",
+    "nagaland": "1GOS5q_6ic2RlF2y-xJBEUqyivjWZrbhR",
     "odisha": "1rVtcpWT1-O-vYmjEzAArKMMXDA1wIYMI",
     "puducherry": "15YLDuy66g3wx8EDVqb6cetbc_aYMhBAR",
     "punjab": "1bO2KAIHXlR2Jlit0a6iDnIZ-gk0xUAJm",
