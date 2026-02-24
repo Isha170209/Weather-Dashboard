@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("IMD Weather Data Dashboard")
+st.title("Weather Data Dashboard")
 
 # ================= GRID CONFIG =================
 GRID_CONFIG = {
