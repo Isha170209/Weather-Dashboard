@@ -36,173 +36,143 @@ GRID_CONFIG = {
 # ================= SIDEBAR =================
 st.sidebar.header("Filters")
 
-# ----- Initialize session state -----
-if "parameter" not in st.session_state:
-    st.session_state.parameter = "rain"
-if "year" not in st.session_state:
-    st.session_state.year = None
-if "lat" not in st.session_state:
-    st.session_state.lat = ""
-if "lon" not in st.session_state:
-    st.session_state.lon = ""
-if "date" not in st.session_state:
-    st.session_state.date = None
-if "submitted" not in st.session_state:
-    st.session_state.submitted = False
-
-# ----- Sidebar Filters -----
-parameter = st.sidebar.selectbox(
-    "Select Parameter", ["rain", "tmax", "tmin"], index=["rain","tmax","tmin"].index(st.session_state.parameter)
-)
+# Parameter selection
+parameter = st.sidebar.selectbox("Select Parameter", ["rain", "tmax", "tmin"])
 config = GRID_CONFIG[parameter]
 
-data_folder = os.path.join("data", parameter)
-parquet_files = glob.glob(os.path.join(data_folder, "*.parquet"))
-
-if not parquet_files:
-    st.error("No parquet files found.")
-    st.stop()
-
-years = sorted([os.path.basename(f).split("_")[0] for f in parquet_files])
-selected_year = st.sidebar.selectbox(
-    "Select Year",
-    years,
-    index=years.index(st.session_state.year) if st.session_state.year in years else 0
-)
-
-# Load data for the year
+# Load ALL parquet files for selected parameter
 @st.cache_data
-def load_year_data(parameter, year):
-    file = glob.glob(os.path.join("data", parameter, f"{year}*.parquet"))[0]
-    df = pd.read_parquet(file)
+def load_all_data(parameter):
+    folder = os.path.join("data", parameter)
+    files = glob.glob(os.path.join(folder, "*.parquet"))
+    if not files:
+        return None
+    df_list = []
+    for f in files:
+        temp = pd.read_parquet(f)
+        df_list.append(temp)
+    df = pd.concat(df_list, ignore_index=True)
     df["date"] = pd.to_datetime(df["date"])
     df["lat"] = pd.to_numeric(df["lat"])
     df["lon"] = pd.to_numeric(df["lon"])
     return df
 
-df = load_year_data(parameter, selected_year)
+df = load_all_data(parameter)
 
-# Date picker
+if df is None:
+    st.error("No parquet files found.")
+    st.stop()
+
+# Date Range Filters
 min_date = df["date"].min()
 max_date = df["date"].max()
-selected_date = st.sidebar.date_input(
-    "Select Date",
-    value=st.session_state.date or min_date,
-    min_value=min_date,
-    max_value=max_date
-)
+
+start_date = st.sidebar.date_input("Start Date", min_date, min_value=min_date, max_value=max_date)
+end_date = st.sidebar.date_input("End Date", max_date, min_value=min_date, max_value=max_date)
 
 # Lat/Lon input
-lat_input = st.sidebar.text_input("Enter Latitude", st.session_state.lat)
-lon_input = st.sidebar.text_input("Enter Longitude", st.session_state.lon)
+lat_input = st.sidebar.text_input("Enter Latitude")
+lon_input = st.sidebar.text_input("Enter Longitude")
 
-# ----- Submit / Reset Buttons -----
 submit_button = st.sidebar.button("Submit")
-reset_button = st.sidebar.button("Reset")
-
-if reset_button:
-    # Clear session state and refresh page
-    st.session_state.lat = ""
-    st.session_state.lon = ""
-    st.session_state.date = None
-    st.session_state.parameter = "rain"
-    st.session_state.year = None
-    st.session_state.submitted = False
-    st.experimental_rerun()
-
-if submit_button:
-    st.session_state.lat = lat_input
-    st.session_state.lon = lon_input
-    st.session_state.date = selected_date
-    st.session_state.parameter = parameter
-    st.session_state.year = selected_year
-    st.session_state.submitted = True
 
 # ================= MAIN LOGIC =================
-if st.session_state.submitted and st.session_state.lat and st.session_state.lon:
-    try:
-        lat_val = float(st.session_state.lat)
-        lon_val = float(st.session_state.lon)
+if submit_button:
 
-        # ---- Bounds Check ----
+    if not lat_input or not lon_input:
+        st.warning("Please enter both latitude and longitude.")
+        st.stop()
+
+    try:
+        lat_val = float(lat_input)
+        lon_val = float(lon_input)
+
+        # Bounds check
         if not (config["lat_min"] <= lat_val <= config["lat_max"]):
             st.error("Latitude outside IMD bounds.")
             st.stop()
+
         if not (config["lon_min"] <= lon_val <= config["lon_max"]):
             st.error("Longitude outside IMD bounds.")
             st.stop()
 
-        selected_date = pd.to_datetime(st.session_state.date)
-        date_filtered = df[df["date"] == selected_date]
+        # Date range validation
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
 
-        if date_filtered.empty:
-            st.warning("No data for selected date.")
+        if start_date > end_date:
+            st.error("Start Date cannot be after End Date.")
             st.stop()
 
-        # ---- Exact Match with small tolerance ----
-        epsilon = 1e-6
-        row = date_filtered[
-            (np.abs(date_filtered["lat"] - lat_val) < epsilon) &
-            (np.abs(date_filtered["lon"] - lon_val) < epsilon)
+        # Filter by date range
+        date_filtered = df[
+            (df["date"] >= start_date) &
+            (df["date"] <= end_date)
         ]
 
-        if row.empty:
+        if date_filtered.empty:
+            st.warning("No data in selected date range.")
+            st.stop()
+
+        # Exact grid match
+        epsilon = 1e-6
+        grid_filtered = date_filtered[
+            (np.abs(date_filtered["lat"] - lat_val) < epsilon) &
+            (np.abs(date_filtered["lon"] - lon_val) < epsilon)
+        ].sort_values("date")
+
+        if grid_filtered.empty:
             st.error("Exact grid point not found in dataset.")
             st.stop()
 
-        value = row.iloc[0][parameter]
-
         # ================= TABS =================
-        tabs = st.tabs(["Description", "Tabular", "Graphical"])
+        tab1, tab2, tab3 = st.tabs(["Description", "Tabular", "Graphical"])
 
-        # ---- Description Tab ----
-        with tabs[0]:
-            st.success("Exact Grid Point Found")
+        # ---------- DESCRIPTION ----------
+        with tab1:
+            st.success("Grid Point Found")
+
             col1, col2 = st.columns(2)
+
             with col1:
                 st.write("Latitude:", lat_val)
                 st.write("Longitude:", lon_val)
                 st.write("Resolution:", f"{config['resolution']}°")
+
             with col2:
-                st.write("Date:", selected_date.date())
-                st.write("Value:", value)
+                st.write("Start Date:", start_date.date())
+                st.write("End Date:", end_date.date())
+                st.write("Mean Value:", round(grid_filtered[parameter].mean(), 2))
+                st.write("Min Value:", round(grid_filtered[parameter].min(), 2))
+                st.write("Max Value:", round(grid_filtered[parameter].max(), 2))
 
-        # ---- Tabular Tab ----
-        with tabs[1]:
-            st.subheader("Tabular Data")
-            all_data = df[
-                (np.abs(df["lat"] - lat_val) < epsilon) &
-                (np.abs(df["lon"] - lon_val) < epsilon)
-            ].sort_values("date")
+        # ---------- TABULAR ----------
+        with tab2:
+            st.subheader("Filtered Data (Selected Date Range)")
+            st.dataframe(grid_filtered, use_container_width=True)
 
-            if all_data.empty:
-                st.warning("No historical data for this grid point.")
-            else:
-                st.dataframe(all_data)
-                csv = all_data.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name=f"{parameter}_{lat_val}_{lon_val}.csv",
-                    mime="text/csv"
-                )
+            csv = grid_filtered.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name=f"{parameter}_{lat_val}_{lon_val}.csv",
+                mime="text/csv"
+            )
 
-        # ---- Graphical Tab ----
-        with tabs[2]:
-            st.subheader("Graphical Data")
-            if all_data.empty:
-                st.warning("No historical data to plot.")
-            else:
-                fig, ax = plt.subplots(figsize=(10, 4))
-                ax.plot(all_data["date"], all_data[parameter], marker='o')
-                ax.set_xlabel("Date")
-                ax.set_ylabel(parameter.capitalize())
-                ax.set_title(f"{parameter.capitalize()} Time Series for ({lat_val},{lon_val})")
-                ax.grid(True)
-                st.pyplot(fig)
+        # ---------- GRAPHICAL ----------
+        with tab3:
+            st.subheader("Time Series (Selected Date Range)")
+
+            fig, ax = plt.subplots(figsize=(12, 4))
+            ax.plot(grid_filtered["date"], grid_filtered[parameter], marker="o")
+            ax.set_xlabel("Date")
+            ax.set_ylabel(parameter.capitalize())
+            ax.set_title(f"{parameter.capitalize()} from {start_date.date()} to {end_date.date()}")
+            ax.grid(True)
+            st.pyplot(fig)
 
     except ValueError:
         st.error("Latitude and Longitude must be numeric.")
 
 else:
-    st.info("Enter latitude and longitude and click Submit to fetch data.")
+    st.info("Select filters and click Submit to fetch data.")
