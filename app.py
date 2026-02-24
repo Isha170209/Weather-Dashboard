@@ -193,8 +193,8 @@ if st.session_state.submitted and st.session_state.lat and st.session_state.lon:
             if all_data.empty:
                 st.warning("No historical data to plot.")
             else:
-                fig, ax = plt.subplots(figsize=(8, 2))
-                ax.plot(all_data["date"], all_data[parameter], marker='o')
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.plot(all_data["date"], all_data[parameter], marker='x')
                 ax.set_xlabel("Date")
                 ax.set_ylabel(parameter.capitalize())
                 ax.set_title(f"{parameter.capitalize()} Time Series for ({lat_val},{lon_val})")
