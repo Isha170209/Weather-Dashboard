@@ -36,7 +36,24 @@ GRID_CONFIG = {
 # ================= SIDEBAR =================
 st.sidebar.header("Filters")
 
-parameter = st.sidebar.selectbox("Select Parameter", ["rain", "tmax", "tmin"])
+# ----- Initialize session state -----
+if "parameter" not in st.session_state:
+    st.session_state.parameter = "rain"
+if "year" not in st.session_state:
+    st.session_state.year = None
+if "lat" not in st.session_state:
+    st.session_state.lat = ""
+if "lon" not in st.session_state:
+    st.session_state.lon = ""
+if "date" not in st.session_state:
+    st.session_state.date = None
+if "submitted" not in st.session_state:
+    st.session_state.submitted = False
+
+# ----- Sidebar Filters -----
+parameter = st.sidebar.selectbox(
+    "Select Parameter", ["rain", "tmax", "tmin"], index=["rain","tmax","tmin"].index(st.session_state.parameter)
+)
 config = GRID_CONFIG[parameter]
 
 data_folder = os.path.join("data", parameter)
@@ -47,9 +64,13 @@ if not parquet_files:
     st.stop()
 
 years = sorted([os.path.basename(f).split("_")[0] for f in parquet_files])
-selected_year = st.sidebar.selectbox("Select Year", years)
+selected_year = st.sidebar.selectbox(
+    "Select Year",
+    years,
+    index=years.index(st.session_state.year) if st.session_state.year in years else 0
+)
 
-# ================= LOAD DATA =================
+# Load data for the year
 @st.cache_data
 def load_year_data(parameter, year):
     file = glob.glob(os.path.join("data", parameter, f"{year}*.parquet"))[0]
@@ -61,20 +82,47 @@ def load_year_data(parameter, year):
 
 df = load_year_data(parameter, selected_year)
 
-# ================= DATE =================
+# Date picker
 min_date = df["date"].min()
 max_date = df["date"].max()
-selected_date = st.sidebar.date_input("Select Date", value=min_date, min_value=min_date, max_value=max_date)
+selected_date = st.sidebar.date_input(
+    "Select Date",
+    value=st.session_state.date or min_date,
+    min_value=min_date,
+    max_value=max_date
+)
 
-# ================= LAT LON INPUT =================
-lat_input = st.sidebar.text_input("Enter Latitude")
-lon_input = st.sidebar.text_input("Enter Longitude")
+# Lat/Lon input
+lat_input = st.sidebar.text_input("Enter Latitude", st.session_state.lat)
+lon_input = st.sidebar.text_input("Enter Longitude", st.session_state.lon)
+
+# ----- Submit / Reset Buttons -----
+submit_button = st.sidebar.button("Submit")
+reset_button = st.sidebar.button("Reset")
+
+if reset_button:
+    # Clear session state and refresh page
+    st.session_state.lat = ""
+    st.session_state.lon = ""
+    st.session_state.date = None
+    st.session_state.parameter = "rain"
+    st.session_state.year = None
+    st.session_state.submitted = False
+    st.experimental_rerun()
+
+if submit_button:
+    st.session_state.lat = lat_input
+    st.session_state.lon = lon_input
+    st.session_state.date = selected_date
+    st.session_state.parameter = parameter
+    st.session_state.year = selected_year
+    st.session_state.submitted = True
 
 # ================= MAIN LOGIC =================
-if lat_input and lon_input:
+if st.session_state.submitted and st.session_state.lat and st.session_state.lon:
     try:
-        lat_val = float(lat_input)
-        lon_val = float(lon_input)
+        lat_val = float(st.session_state.lat)
+        lon_val = float(st.session_state.lon)
 
         # ---- Bounds Check ----
         if not (config["lat_min"] <= lat_val <= config["lat_max"]):
@@ -84,7 +132,7 @@ if lat_input and lon_input:
             st.error("Longitude outside IMD bounds.")
             st.stop()
 
-        selected_date = pd.to_datetime(selected_date)
+        selected_date = pd.to_datetime(st.session_state.date)
         date_filtered = df[df["date"] == selected_date]
 
         if date_filtered.empty:
@@ -122,7 +170,6 @@ if lat_input and lon_input:
         # ---- Tabular Tab ----
         with tabs[1]:
             st.subheader("Tabular Data")
-            # Filter all dates for this lat-lon
             all_data = df[
                 (np.abs(df["lat"] - lat_val) < epsilon) &
                 (np.abs(df["lon"] - lon_val) < epsilon)
@@ -132,8 +179,6 @@ if lat_input and lon_input:
                 st.warning("No historical data for this grid point.")
             else:
                 st.dataframe(all_data)
-
-                # Download CSV
                 csv = all_data.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="Download CSV",
@@ -160,4 +205,4 @@ if lat_input and lon_input:
         st.error("Latitude and Longitude must be numeric.")
 
 else:
-    st.info("Enter latitude and longitude to fetch data.")
+    st.info("Enter latitude and longitude and click Submit to fetch data.")
