@@ -3,9 +3,10 @@ import pandas as pd
 import os
 import glob
 import numpy as np
+import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("IMD Grid Climate Dashboard")
+st.title("IMD Weather Data Dashboard")
 
 # ================= GRID CONFIG =================
 GRID_CONFIG = {
@@ -83,15 +84,6 @@ if lat_input and lon_input:
             st.error("Longitude outside IMD bounds.")
             st.stop()
 
-        # ---- Resolution Check ----
-        res = config["resolution"]
-        if round((lat_val - config["lat_min"]) % res, 6) != 0:
-            st.error(f"Latitude must be on {res}° grid.")
-            st.stop()
-        if round((lon_val - config["lon_min"]) % res, 6) != 0:
-            st.error(f"Longitude must be on {res}° grid.")
-            st.stop()
-
         selected_date = pd.to_datetime(selected_date)
         date_filtered = df[df["date"] == selected_date]
 
@@ -99,8 +91,8 @@ if lat_input and lon_input:
             st.warning("No data for selected date.")
             st.stop()
 
-        # ---- Exact Match with Tolerance ----
-        epsilon = 1e-6  # small tolerance for floating point
+        # ---- Exact Match with small tolerance ----
+        epsilon = 1e-6
         row = date_filtered[
             (np.abs(date_filtered["lat"] - lat_val) < epsilon) &
             (np.abs(date_filtered["lon"] - lon_val) < epsilon)
@@ -112,16 +104,57 @@ if lat_input and lon_input:
 
         value = row.iloc[0][parameter]
 
-        # ---- Display ----
-        st.success("Exact Grid Point Found")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("Latitude:", lat_val)
-            st.write("Longitude:", lon_val)
-            st.write("Resolution:", f"{res}°")
-        with col2:
-            st.write("Date:", selected_date.date())
-            st.write("Value:", value)
+        # ================= TABS =================
+        tabs = st.tabs(["Description", "Tabular", "Graphical"])
+
+        # ---- Description Tab ----
+        with tabs[0]:
+            st.success("Exact Grid Point Found")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("Latitude:", lat_val)
+                st.write("Longitude:", lon_val)
+                st.write("Resolution:", f"{config['resolution']}°")
+            with col2:
+                st.write("Date:", selected_date.date())
+                st.write("Value:", value)
+
+        # ---- Tabular Tab ----
+        with tabs[1]:
+            st.subheader("Tabular Data")
+            # Filter all dates for this lat-lon
+            all_data = df[
+                (np.abs(df["lat"] - lat_val) < epsilon) &
+                (np.abs(df["lon"] - lon_val) < epsilon)
+            ].sort_values("date")
+
+            if all_data.empty:
+                st.warning("No historical data for this grid point.")
+            else:
+                st.dataframe(all_data)
+
+                # Download CSV
+                csv = all_data.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"{parameter}_{lat_val}_{lon_val}.csv",
+                    mime="text/csv"
+                )
+
+        # ---- Graphical Tab ----
+        with tabs[2]:
+            st.subheader("Graphical Data")
+            if all_data.empty:
+                st.warning("No historical data to plot.")
+            else:
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.plot(all_data["date"], all_data[parameter], marker='o')
+                ax.set_xlabel("Date")
+                ax.set_ylabel(parameter.capitalize())
+                ax.set_title(f"{parameter.capitalize()} Time Series for ({lat_val},{lon_val})")
+                ax.grid(True)
+                st.pyplot(fig)
 
     except ValueError:
         st.error("Latitude and Longitude must be numeric.")
