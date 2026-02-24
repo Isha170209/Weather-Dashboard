@@ -2,17 +2,14 @@ import streamlit as st
 import pandas as pd
 import os
 import glob
-import numpy as np
 
 st.set_page_config(layout="wide")
 st.title("IMD Grid Climate Dashboard")
 
-# ======================================================
-# GRID DEFINITIONS
-# ======================================================
+# ================= GRID CONFIG =================
 
 GRID_CONFIG = {
-    "rainfall": {
+    "rain": {
         "resolution": 0.25,
         "lat_min": 6.5,
         "lat_max": 38.5,
@@ -35,15 +32,13 @@ GRID_CONFIG = {
     }
 }
 
-# ======================================================
-# SIDEBAR
-# ======================================================
+# ================= SIDEBAR =================
 
 st.sidebar.header("Filters")
 
 parameter = st.sidebar.selectbox(
     "Select Parameter",
-    ["rainfall", "tmax", "tmin"]
+    ["rain", "tmax", "tmin"]
 )
 
 config = GRID_CONFIG[parameter]
@@ -62,43 +57,25 @@ years = sorted([
 
 selected_year = st.sidebar.selectbox("Select Year", years)
 
-# ======================================================
-# LOAD DATA
-# ======================================================
+# ================= LOAD DATA =================
 
 @st.cache_data
 def load_year_data(parameter, year):
-
-    possible_files = glob.glob(
+    file = glob.glob(
         os.path.join("data", parameter, f"{year}*.parquet")
-    )
+    )[0]
 
-    if not possible_files:
-        return None
+    df = pd.read_parquet(file)
 
-    df = pd.read_parquet(possible_files[0])
-    df.columns = df.columns.str.lower()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    # Convert to numeric
-    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
-    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-
-    # Auto-fix swapped columns
-    if df["lon"].max() <= 40:
-        df.rename(columns={"lon": "temp_lat"}, inplace=True)
-        df.rename(columns={"lat": "lon"}, inplace=True)
-        df.rename(columns={"temp_lat": "lat"}, inplace=True)
-        st.warning("Lat/Lon columns were swapped automatically.")
+    df["date"] = pd.to_datetime(df["date"])
+    df["lat"] = pd.to_numeric(df["lat"])
+    df["lon"] = pd.to_numeric(df["lon"])
 
     return df
 
-
 df = load_year_data(parameter, selected_year)
 
-if df is None:
-    st.error("Could not load selected year file.")
-    st.stop()
+# ================= DATE =================
 
 min_date = df["date"].min()
 max_date = df["date"].max()
@@ -110,12 +87,12 @@ selected_date = st.sidebar.date_input(
     max_value=max_date
 )
 
+# ================= LAT LON INPUT =================
+
 lat_input = st.sidebar.text_input("Enter Latitude")
 lon_input = st.sidebar.text_input("Enter Longitude")
 
-# ======================================================
-# MAIN LOGIC
-# ======================================================
+# ================= MAIN LOGIC =================
 
 if lat_input and lon_input:
 
@@ -123,16 +100,24 @@ if lat_input and lon_input:
         lat_val = float(lat_input)
         lon_val = float(lon_input)
 
-        # -------------------------------
-        # 1️⃣ CHECK BOUNDS
-        # -------------------------------
-
+        # ---- Bounds Check ----
         if not (config["lat_min"] <= lat_val <= config["lat_max"]):
-            st.error("Latitude outside IMD grid bounds.")
+            st.error("Latitude outside IMD bounds.")
             st.stop()
 
         if not (config["lon_min"] <= lon_val <= config["lon_max"]):
-            st.error("Longitude outside IMD grid bounds.")
+            st.error("Longitude outside IMD bounds.")
+            st.stop()
+
+        # ---- Resolution Check ----
+        res = config["resolution"]
+
+        if round((lat_val - config["lat_min"]) % res, 6) != 0:
+            st.error(f"Latitude must be on {res}° grid.")
+            st.stop()
+
+        if round((lon_val - config["lon_min"]) % res, 6) != 0:
+            st.error(f"Longitude must be on {res}° grid.")
             st.stop()
 
         selected_date = pd.to_datetime(selected_date)
@@ -140,71 +125,33 @@ if lat_input and lon_input:
         date_filtered = df[df["date"] == selected_date]
 
         if date_filtered.empty:
-            st.warning("No data available for selected date.")
+            st.warning("No data for selected date.")
             st.stop()
 
-        value_column = {
-            "rainfall": "rain",
-            "tmax": "tmax",
-            "tmin": "tmin"
-        }.get(parameter, "rain")
+        # ---- Exact Match ----
+        row = date_filtered[
+            (date_filtered["lat"] == lat_val) &
+            (date_filtered["lon"] == lon_val)
+        ]
 
-        date_filtered[value_column] = pd.to_numeric(
-            date_filtered[value_column], errors="coerce"
-        )
-
-        clean_df = date_filtered.dropna(
-            subset=["lat", "lon", value_column]
-        )
-
-        if clean_df.empty:
-            st.error("All values for this date are NaN.")
+        if row.empty:
+            st.error("Exact grid point not found in dataset.")
             st.stop()
 
-        # -------------------------------
-        # 2️⃣ SNAP TO GRID RESOLUTION
-        # -------------------------------
+        value = row.iloc[0][parameter]
 
-        res = config["resolution"]
-
-        snapped_lat = round((lat_val - config["lat_min"]) / res) * res + config["lat_min"]
-        snapped_lon = round((lon_val - config["lon_min"]) / res) * res + config["lon_min"]
-
-        # Ensure snapped stays within bounds
-        snapped_lat = min(max(snapped_lat, config["lat_min"]), config["lat_max"])
-        snapped_lon = min(max(snapped_lon, config["lon_min"]), config["lon_max"])
-
-        # -------------------------------
-        # 3️⃣ FIND NEAREST (FLOAT SAFE)
-        # -------------------------------
-
-        clean_df["distance"] = (
-            (clean_df["lat"] - snapped_lat) ** 2 +
-            (clean_df["lon"] - snapped_lon) ** 2
-        )
-
-        nearest_row = clean_df.loc[clean_df["distance"].idxmin()]
-        value = nearest_row[value_column]
-
-        # -------------------------------
-        # DISPLAY
-        # -------------------------------
-
-        st.success("Grid Value Found")
+        # ---- Display ----
+        st.success("Exact Grid Point Found")
 
         col1, col2 = st.columns(2)
 
         with col1:
-            st.write("Requested Lat:", lat_val)
-            st.write("Requested Lon:", lon_val)
-            st.write("Snapped Lat:", snapped_lat)
-            st.write("Snapped Lon:", snapped_lon)
+            st.write("Latitude:", lat_val)
+            st.write("Longitude:", lon_val)
+            st.write("Resolution:", f"{res}°")
 
         with col2:
             st.write("Date:", selected_date.date())
-            st.write("Resolution:", f"{res}°")
-            st.write("Nearest Grid Lat:", nearest_row["lat"])
-            st.write("Nearest Grid Lon:", nearest_row["lon"])
             st.write("Value:", value)
 
     except ValueError:
