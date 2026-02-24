@@ -38,7 +38,7 @@ st.sidebar.header("Filters")
 
 parameter = st.sidebar.selectbox(
     "Select Parameter",
-    ["rain", "tmax", "tmin"]
+    ["rainfall", "tmax", "tmin"]
 )
 
 config = GRID_CONFIG[parameter]
